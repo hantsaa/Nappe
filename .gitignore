@@ -1,0 +1,9 @@
+build/
+build-*/
+test_dsp
+nappe_tests
+*.exe
+*.f32
+__pycache__/
+.vs/
+*.user

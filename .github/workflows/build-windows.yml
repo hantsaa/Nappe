@@ -1,0 +1,74 @@
+name: Build VST3 (Windows)
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Tests du moteur audio (g++, sans JUCE)
+        run: |
+          g++ -O2 -std=c++17 -Wall -Wextra -pedantic -o test_dsp test/test_dsp.cpp
+          ./test_dsp
+
+  build:
+    needs: test
+    runs-on: windows-2022
+    permissions:
+      contents: write   # publication de la release, uniquement pour un tag vX.Y.Z
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Tests CTest
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Paquetage
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item -Recurse build/Nappe_artefacts/Release/VST3/Nappe.vst3 dist/
+          Copy-Item build/Nappe_artefacts/Release/Standalone/*.exe dist/ -ErrorAction SilentlyContinue
+      - name: Envoi de l'artefact non signé
+        id: unsigned
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: Nappe-Windows-unsigned
+          path: dist
+      - name: Signature Authenticode (SignPath Foundation, si configurée)
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@4a84eb4ad763290f059275786f2deed97c2c672b # v3.1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: nappe
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: windows
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: "1800"
+          output-artifact-directory: signed
+      - name: Archive et empreintes SHA-256
+        shell: pwsh
+        run: |
+          $src = if (Test-Path signed) { 'signed' } else { 'dist' }
+          Compress-Archive -Path "$src/*" -DestinationPath Nappe-Windows.zip
+          $h = (Get-FileHash -Algorithm SHA256 Nappe-Windows.zip).Hash.ToLower()
+          "$h  Nappe-Windows.zip" | Set-Content -Encoding ascii SHA256SUMS.txt
+          Get-Content SHA256SUMS.txt
+      - name: Publication de la release (tags vX.Y.Z uniquement)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${{ github.ref_name }}" *> $null
+          if ($LASTEXITCODE -eq 0) { Write-Host "La release ${{ github.ref_name }} existe déjà."; exit 1 }
+          gh release create "${{ github.ref_name }}" Nappe-Windows.zip SHA256SUMS.txt --title "Nappe ${{ github.ref_name }}" --generate-notes
