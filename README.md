@@ -2,7 +2,7 @@
 
 **Reverb + tremolo for DJs and producers: VST3 plugin (Windows) and standalone app.**
 
-<center>C++17 · JUCE 8 · CMake · GitHub Actions</center>
+C++17 · JUCE 8 · CMake · GitHub Actions
 
 [![Build](https://github.com/hantsaa/Nappe/actions/workflows/build-windows.yml/badge.svg)](https://github.com/hantsaa/Nappe/actions/workflows/build-windows.yml)
 
